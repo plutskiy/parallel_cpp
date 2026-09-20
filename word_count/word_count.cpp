@@ -7,7 +7,6 @@
 #include <cctype>
 #include <iomanip>
 
-// Функция для приведения строки к нижнему регистру
 std::string toLower(const std::string& str) {
     std::string result;
     for (char c : str) {
@@ -16,7 +15,6 @@ std::string toLower(const std::string& str) {
     return result;
 }
 
-// Функция для очистки слова от знаков препинания
 std::string cleanWord(std::string word) {
     // Удаляем знаки препинания в начале слова
     while (!word.empty() && std::ispunct(word.front())) {
@@ -31,25 +29,20 @@ std::string cleanWord(std::string word) {
     return word;
 }
 
-// Структура для хранения слова и его частоты
 struct WordCount {
     std::string word;
     int count;
 };
 
-// Функция для сравнения двух WordCount объектов (для сортировки)
 bool compareWordCount(const WordCount& a, const WordCount& b) {
     return a.count > b.count;
 }
 
 int main(int argc, char* argv[]) {
-    // Проверяем аргументы командной строки
     if (argc < 2) {
         std::cerr << "Использование: " << argv[0] << " <файл> [количество слов]" << std::endl;
         return 1;
     }
-    
-    // Получаем имя файла и количество слов для вывода
     std::string filename = argv[1];
     int topN = 10;
     if (argc > 2) {
@@ -69,31 +62,24 @@ int main(int argc, char* argv[]) {
     
     // Читаем слова из файла
     while (file >> word) {
-        // Очищаем слово от знаков препинания
         word = cleanWord(word);
         
-        // Приводим к нижнему регистру
         word = toLower(word);
         
-        // Пропускаем пустые слова
         if (word.empty()) {
             continue;
         }
         
-        // Увеличиваем счетчик для этого слова
         wordCountMap[word]++;
     }
     
-    // Закрываем файл
     file.close();
     
-    // Преобразуем map в вектор для сортировки
     std::vector<WordCount> wordCounts;
     for (const auto& pair : wordCountMap) {
         wordCounts.push_back({pair.first, pair.second});
     }
     
-    // Сортируем вектор по убыванию частоты
     std::sort(wordCounts.begin(), wordCounts.end(), compareWordCount);
     
     // Выводим результаты
