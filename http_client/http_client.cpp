@@ -6,9 +6,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <condition_variable>
 #include <cstring>
+#include <functional>
 #include <iostream>
+#include <mutex>
 #include <sstream>
+#include <thread>
 
 // Парсинг URL на компоненты
 HttpClient::ParsedUrl HttpClient::parseUrl(const std::string& url) {
@@ -374,42 +378,86 @@ std::string HttpClient::getDomain(const std::string& url) {
   }
   return url.substr(start, end - start);
 }
-void HttpClient::crawlWebsite(const std::string& startUrl, int maxPages) {
-  std::set<std::string> visited;
-  std::queue<std::string> toVisit;
-  toVisit.push(startUrl);
+void HttpClient::crawlWebsite(const std::string& startUrl, int maxPages,
+                              int numThreads,
+                              const std::string& outputXmlFile) {
   std::string domain = getDomain(startUrl);
 
   std::cout << "Начинаем обход сайта: " << startUrl << std::endl;
   std::cout << "Домен: " << domain << std::endl;
 
-  while (!toVisit.empty() && visited.size() < maxPages) {
-    std::string currentUrl = toVisit.front();
-    toVisit.pop();
+  std::set<std::string> visited;
+  std::queue<std::string> toVisit;
+  std::map<std::string, std::vector<std::string>> siteMap;
+  toVisit.push(startUrl);
 
-    if (visited.find(currentUrl) != visited.end()) {
-      continue;
-    }
+  std::mutex stateMutex;
+  std::condition_variable cv;
+  int activeWorkers = 0;
 
-    std::cout << "Обрабатываем: " << currentUrl << std::endl;
+  auto worker = [&]() {
+    HttpClient localClient;
+    while (true) {
+      std::string currentUrl;
+      {
+        std::unique_lock<std::mutex> lock(stateMutex);
+        while (toVisit.empty() && activeWorkers > 0 &&
+               visited.size() < static_cast<size_t>(maxPages)) {
+          cv.wait(lock);
+        }
+        if (toVisit.empty() || visited.size() >= static_cast<size_t>(maxPages)) {
+          cv.notify_all();
+          return;
+        }
+        currentUrl = toVisit.front();
+        toVisit.pop();
+        if (visited.find(currentUrl) != visited.end()) {
+          continue;
+        }
+        visited.insert(currentUrl);
+        activeWorkers++;
+      }
 
-    std::string page = get(currentUrl);
-    if (page.empty()) {
-      continue;
-    }
+      std::cout << "Обрабатываем: " << currentUrl << std::endl;
 
-    visited.insert(currentUrl);
+      std::string page;
+      try {
+        page = localClient.get(currentUrl);
+      } catch (const std::exception& e) {
+        std::cerr << "Ошибка загрузки " << currentUrl << ": " << e.what()
+                  << std::endl;
+      }
 
-    std::vector<std::string> links = extractLinks(page);
-    for (const std::string& link : links) {
-      std::string normalizedLink = normalizeUrl(currentUrl, link);
+      std::vector<std::string> links =
+          page.empty() ? std::vector<std::string>{} : extractLinks(page);
 
-      // Проверяем, что ссылка ведет на тот же домен
-      if (getDomain(normalizedLink) == domain &&
-          visited.find(normalizedLink) == visited.end()) {
-        toVisit.push(normalizedLink);
+      {
+        std::unique_lock<std::mutex> lock(stateMutex);
+        std::vector<std::string>& children = siteMap[currentUrl];
+        for (const std::string& link : links) {
+          std::string normalizedLink = normalizeUrl(currentUrl, link);
+
+          // Проверяем, что ссылка ведет на тот же домен
+          if (getDomain(normalizedLink) == domain) {
+            children.push_back(normalizedLink);
+            if (visited.find(normalizedLink) == visited.end() &&
+                visited.size() < static_cast<size_t>(maxPages)) {
+              toVisit.push(normalizedLink);
+            }
+          }
+        }
+        activeWorkers--;
+        cv.notify_all();
       }
     }
+  };
+
+  std::vector<std::thread> workers;
+  for (int i = 0; i < numThreads; ++i) {
+    workers.emplace_back(worker);
+  }
+  for (std::thread& t : workers) {
+    t.join();
   }
 
   std::cout << "Обход завершен. Посещено страниц: " << visited.size()
@@ -418,4 +466,42 @@ void HttpClient::crawlWebsite(const std::string& startUrl, int maxPages) {
   for (const std::string& url : visited) {
     std::cout << "  " << url << std::endl;
   }
+
+  saveSiteMapXml(startUrl, siteMap, outputXmlFile);
+  std::cout << "Карта сайта сохранена в файл: " << outputXmlFile << std::endl;
+}
+
+void HttpClient::saveSiteMapXml(
+    const std::string& startUrl,
+    const std::map<std::string, std::vector<std::string>>& siteMap,
+    const std::string& filename) {
+  xmlDocPtr doc = xmlNewDoc((const xmlChar*)"1.0");
+  xmlNodePtr root = xmlNewNode(NULL, (const xmlChar*)"sitemap");
+  xmlDocSetRootElement(doc, root);
+
+  std::set<std::string> expanded;
+  std::function<void(xmlNodePtr, const std::string&)> buildTree =
+      [&](xmlNodePtr parentNode, const std::string& url) {
+        xmlNodePtr pageNode =
+            xmlNewChild(parentNode, NULL, (const xmlChar*)"page", NULL);
+        xmlNewProp(pageNode, (const xmlChar*)"url", (const xmlChar*)url.c_str());
+
+        // Каждый узел разворачивается только один раз, чтобы циклические
+        // ссылки между страницами не привели к бесконечной рекурсии
+        if (!expanded.insert(url).second) {
+          return;
+        }
+
+        auto it = siteMap.find(url);
+        if (it != siteMap.end()) {
+          for (const std::string& child : it->second) {
+            buildTree(pageNode, child);
+          }
+        }
+      };
+
+  buildTree(root, startUrl);
+
+  xmlSaveFormatFileEnc(filename.c_str(), doc, "UTF-8", 1);
+  xmlFreeDoc(doc);
 }

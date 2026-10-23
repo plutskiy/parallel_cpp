@@ -4,8 +4,14 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <mutex>
+#include <sstream>
+#include <thread>
 #include <string>
 #include <vector>
+
+constexpr int kBlockSize = 10000;  // слов в одном блоке
+constexpr int kTopDefault = 100;
 
 std::string toLower(const std::string& str) {
   std::string result;
@@ -38,6 +44,22 @@ bool compareWordCount(const WordCount& a, const WordCount& b) {
   return a.count > b.count;
 }
 
+void countBlock(const std::vector<std::string>& block,
+                 std::map<std::string, int>& wordCountMap, std::mutex& mtx) {
+  std::map<std::string, int> localCounts;
+  for (const std::string& raw : block) {
+    std::string word = toLower(cleanWord(raw));
+    if (!word.empty()) {
+      localCounts[word]++;
+    }
+  }
+
+  std::lock_guard<std::mutex> lock(mtx);
+  for (const auto& [word, count] : localCounts) {
+    wordCountMap[word] += count;
+  }
+}
+
 int main(int argc, char* argv[]) {
   if (argc < 2) {
     std::cerr << "Использование: " << argv[0] << " <файл> [количество слов]"
@@ -45,10 +67,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
   std::string filename = argv[1];
-  int topN = 10;
-  if (argc > 2) {
-    topN = std::stoi(argv[2]);
-  }
+  int topN = argc > 2 ? std::stoi(argv[2]) : kTopDefault;
 
   // Открываем файл
   std::ifstream file(filename);
@@ -57,21 +76,29 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  // Карта для подсчета слов
   std::map<std::string, int> wordCountMap;
+  std::mutex mtx;
+  std::vector<std::thread> threads;
+
   std::string word;
-
-  // Читаем слова из файла
+  std::vector<std::string> block;
+  block.reserve(kBlockSize);
   while (file >> word) {
-    word = cleanWord(word);
-
-    word = toLower(word);
-
-    if (word.empty()) {
-      continue;
+    block.push_back(word);
+    if (static_cast<int>(block.size()) == kBlockSize) {
+      threads.emplace_back(countBlock, std::move(block), std::ref(wordCountMap),
+                            std::ref(mtx));
+      block.clear();
+      block.reserve(kBlockSize);
     }
+  }
+  if (!block.empty()) {
+    threads.emplace_back(countBlock, std::move(block), std::ref(wordCountMap),
+                          std::ref(mtx));
+  }
 
-    wordCountMap[word]++;
+  for (auto& t : threads) {
+    t.join();
   }
 
   file.close();

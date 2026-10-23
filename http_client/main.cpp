@@ -21,25 +21,46 @@ int main() {
   HttpClient client;
 
   // Простой GET запрос
-  // std::string response = client.get("https://habr.com/ru/articles/944742/");
-  // std::string title = extractByRegex(response);
-  // std::cout << title;
-  client.crawlWebsite("https://habr.com/ru/articles/944742/");
+  try {
+    std::string response = client.get("https://habr.com/ru/articles/944742/");
+    std::string title = extractByRegex(response);
+    std::cout << title << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "GET запрос не удался: " << e.what() << std::endl;
+  }
+
+  client.crawlWebsite("https://habr.com/ru/articles/944742/", 100, 4,
+                      "sitemap.xml");
 
   // GET запрос с заголовками
-  // std::map<std::string, std::string> headers;
-  // headers["Authorization"] = "Bearer token123";
-  // headers["Accept"] = "application/json";
-  // std::string response = client.get("https://api.example.com/data", headers);
+  try {
+    std::map<std::string, std::string> headers;
+    headers["Authorization"] = "Bearer token123";
+    headers["Accept"] = "application/json";
+    std::string response = client.get("https://api.example.com/data", headers);
+    std::cout << response << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "GET запрос с заголовками не удался: " << e.what() << std::endl;
+  }
 
   // POST запрос с данными формы
-  // std::string data = "username=test&password=secret";
-  // std::string response = client.post("http://example.com/login", data);
+  try {
+    std::string data = "username=test&password=secret";
+    std::string response = client.post("http://example.com/login", data);
+    std::cout << response << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "POST запрос с формой не удался: " << e.what() << std::endl;
+  }
 
   // POST запрос с JSON
-  // std::string json_data = "{\"name\": \"John\", \"age\": 30}";
-  // std::map<std::string, std::string> headers;
-  // headers["Content-Type"] = "application/json";
-  // std::string response = client.post("https://api.example.com/users",
-  // json_data, headers, "application/json");
+  try {
+    std::string json_data = "{\"name\": \"John\", \"age\": 30}";
+    std::map<std::string, std::string> headers;
+    headers["Content-Type"] = "application/json";
+    std::string response = client.post("https://api.example.com/users",
+                                        json_data, headers, "application/json");
+    std::cout << response << std::endl;
+  } catch (const std::exception& e) {
+    std::cerr << "POST запрос с JSON не удался: " << e.what() << std::endl;
+  }
 }

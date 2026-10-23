@@ -55,7 +55,16 @@ class HttpClient {
   // Функция для извлечения домена из URL
   std::string getDomain(const std::string& url);
   // Основная функция обхода сайта
-  void crawlWebsite(const std::string& startUrl, int maxPages = 100);
+  // карта сайта сохраняется в outputXmlFile в виде древовидного XML
+  void crawlWebsite(const std::string& startUrl, int maxPages = 100,
+                     int numThreads = 4,
+                     const std::string& outputXmlFile = "sitemap.xml");
+
+ private:
+  // Сохранение карты сайта (родитель -> дочерние ссылки) в виде XML-дерева
+  void saveSiteMapXml(const std::string& startUrl,
+                       const std::map<std::string, std::vector<std::string>>& siteMap,
+                       const std::string& filename);
 };
 
 #endif  // HTTP_CLIENT_H
