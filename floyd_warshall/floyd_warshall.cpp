@@ -1,8 +1,10 @@
 #include "floyd_warshall.h"
 
 #include <algorithm>
+#include <barrier>
 #include <climits>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 using namespace std;
@@ -23,19 +25,32 @@ FloydWarshall::FloydWarshall(const vector<vector<int>>& graph) {
   }
 }
 
-void FloydWarshall::run() {
-  for (int k = 0; k < n; k++) {
-    for (int i = 0; i < n; i++) {
-      for (int j = 0; j < n; j++) {
-        if (dist[i][k] != INT_MAX && dist[k][j] != INT_MAX) {
-          if (dist[i][j] > dist[i][k] + dist[k][j]) {
+void FloydWarshall::run(unsigned int num_threads) {
+  if (num_threads == 0) num_threads = 1;
+  num_threads = min<unsigned int>(num_threads, max(n, 1));
+
+  barrier sync_point(num_threads);
+
+  auto worker = [&](unsigned int thread_id) {
+    for (int k = 0; k < n; k++) {
+      for (int i = thread_id; i < n; i += num_threads) {
+        if (dist[i][k] == INT_MAX) continue;
+        for (int j = 0; j < n; j++) {
+          if (dist[k][j] != INT_MAX && dist[i][j] > dist[i][k] + dist[k][j]) {
             dist[i][j] = dist[i][k] + dist[k][j];
             next[i][j] = next[i][k];
           }
         }
       }
+      sync_point.arrive_and_wait();
     }
+  };
+
+  vector<thread> threads;
+  for (unsigned int t = 0; t < num_threads; t++) {
+    threads.emplace_back(worker, t);
   }
+  for (auto& th : threads) th.join();
 
   // Проверка на отрицательные циклы
   for (int i = 0; i < n; i++) {

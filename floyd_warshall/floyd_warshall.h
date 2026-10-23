@@ -3,6 +3,7 @@
 
 #include <climits>
 #include <vector>
+#include <thread>
 
 class FloydWarshall {
  private:
@@ -16,7 +17,7 @@ class FloydWarshall {
   FloydWarshall(const std::vector<std::vector<int>>& graph);
 
   // Запуск алгоритма
-  void run();
+  void run(unsigned int num_threads = std::thread::hardware_concurrency());
 
   // Получение кратчайшего расстояния между двумя вершинами
   int getDistance(int from, int to) const;
